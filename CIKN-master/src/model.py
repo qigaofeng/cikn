@@ -12,7 +12,7 @@ from tensorflow.python.keras.regularizers import l2
 
 class ATT(Layer):
     """
-      Input shape1
+      Input shape
         - A list of 3D tensor with shape: ``(batch_size,1,embedding_size)``.
 
       Output shape
