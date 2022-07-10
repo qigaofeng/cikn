@@ -125,7 +125,7 @@ def construct_adj(args, kg, entity_num):
 
 
 def get_ripple_set(args, kg, user_history_dict):
-    print('constructing ripple set ...')
+    print('constructing triple set ...')
 
     # user -> [(hop_0_heads, hop_0_relations, hop_0_tails), (hop_1_heads, hop_1_relations, hop_1_tails), ...]
     ripple_set = collections.defaultdict(list)

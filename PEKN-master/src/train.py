@@ -3,6 +3,10 @@ import numpy as np
 from model import CIKN
 
 
+def test_f1(args):
+    pass
+
+
 def train(args, data, show_loss, show_topk):
     # print(data)
     n_user, n_item, n_entity, n_relation = data[0], data[1], data[2], data[3]
@@ -36,13 +40,13 @@ def train(args, data, show_loss, show_topk):
                     print('%.1f%% %.4f' % (start / train_data.shape[0] * 100, loss))
 
             # CTR evaluation
-            train_auc, train_f1, train_acc = ctr_eval(sess, args, model, train_data, ripple_set, args.batch_size)
-            eval_auc, eval_f1, eval_acc = ctr_eval(sess, args, model, eval_data, ripple_set, args.batch_size)
-            test_auc, test_f1, test_acc = ctr_eval(sess, args, model, test_data, ripple_set, args.batch_size)
+            train_auc, train_f1= ctr_eval(sess, args, model, train_data, ripple_set, args.batch_size)
+            eval_auc, eval_f1, = ctr_eval(sess, args, model, eval_data, ripple_set, args.batch_size)
+            test_auc, test_f1 = ctr_eval(sess, args, model, test_data, ripple_set, args.batch_size)
 
             print(
-                'epoch %d    train auc: %.4f  f1: %.4f   acc: %.4f    eval auc: %.4f  f1: %.4f  acc: %.4f    test auc: %.4f  f1: %.4f  acc: %.4f'
-                % (step, train_auc, train_f1, train_acc, eval_auc, eval_f1, eval_acc, test_auc, test_f1, test_acc))
+                'epoch %d    train auc: %.4f  f1: %.4f      eval auc: %.4f  f1: %.4f      test auc: %.4f  f1: %.4f'
+                % (step, train_auc, train_f1, eval_auc, eval_f1,  test_auc, test_f1))
 
             # # find bad case
             # train_err_pred = ctr_survey(sess, model, train_data, args.batch_size)
@@ -51,9 +55,10 @@ def train(args, data, show_loss, show_topk):
 
             # top-K evaluation
             if show_topk:
-                precision, recall = topk_eval(
-                    sess, model, user_list, train_record, test_record, item_set, k_list, ripple_set, args.batch_size,
-                    start)
+                precision, recall = topk_eval2(
+                    # sess, model, user_list, train_record, test_record, item_set, k_list, args.batch_size
+                    args, data, sess, model, user_list, train_record, test_record, item_set, k_list, ripple_set,args.batch_size
+                    )
                 print('precision: ', end='')
                 for i in precision:
                     print('%.4f\t' % i, end='')
@@ -110,7 +115,6 @@ def train(args, data, show_loss, show_topk):
     #
     #     print('finish.')
 
-
 def get_interaction_table(train_data, n_entity):
     offset = len(str(n_entity))
     offset = 10 ** offset
@@ -155,33 +159,62 @@ def ctr_eval(sess, args, model, data, ripple_set, batch_size):
     f1_list = []
     acc_list = []
     while start + batch_size <= data.shape[0]:
-        auc, f1, acc = model.eval(sess, get_feed_dict(args, model, data, ripple_set, start, start + batch_size))
+        auc, f1,= model.eval(sess, get_feed_dict(args, model, data, ripple_set, start, start + batch_size))
         auc_list.append(auc)
         f1_list.append(f1)
-        acc_list.append(acc)
+        #acc_list.append(acc)
         start += batch_size
-    return float(np.mean(auc_list)), float(np.mean(f1_list)), float(np.mean(acc_list))
+    return float(np.mean(auc_list)), float(np.mean(f1_list))
 
 
-def topk_eval(args, data, sess, model, user_list, train_record, test_record, item_set, k_list, ripple_set, start):
+def topk_eval(sess, model, user_list, train_record, test_record, item_set, k_list, batch_size):
     precision_list = {k: [] for k in k_list}
     recall_list = {k: [] for k in k_list}
 
-    for i in range(args.n_iter):
-        model.memories_h[i] = [ripple_set[user][i][0] for user in data[start:start + args.batch_size]]
-        model.memories_r[i] = [ripple_set[user][i][1] for user in data[start:start + args.batch_size]]
-        model.memories_t[i] = [ripple_set[user][i][2] for user in data[start:start + args.batch_size]]
+    for user in user_list:
+        test_item_list = list(item_set - train_record[user])
+        item_score_map = dict()
+        start = 0
+        while start + batch_size <= len(test_item_list):
+            items, scores = model.get_scores(sess, {model.user_indices: [user] * batch_size,
+                                                    model.item_indices: test_item_list[start:start + batch_size]})
+            for item, score in zip(items, scores):
+                item_score_map[item] = score
+            start += batch_size
+
+        # padding the last incomplete minibatch if exists
+        if start < len(test_item_list):
+            items, scores = model.get_scores(
+                sess, {model.user_indices: [user] * batch_size,
+                       model.item_indices: test_item_list[start:] + [test_item_list[-1]] * (
+                               batch_size - len(test_item_list) + start)})
+            for item, score in zip(items, scores):
+                item_score_map[item] = score
+
+        item_score_pair_sorted = sorted(item_score_map.items(), key=lambda x: x[1], reverse=True)
+        item_sorted = [i[0] for i in item_score_pair_sorted]
+
+        for k in k_list:
+            hit_num = len(set(item_sorted[:k]) & test_record[user])
+            precision_list[k].append(hit_num / k)
+            recall_list[k].append(hit_num / len(test_record[user]))
+
+    precision = [np.mean(precision_list[k]) for k in k_list]
+    recall = [np.mean(recall_list[k]) for k in k_list]
+
+    return precision, recall
+
+
+def topk_eval2(args, data, sess, model, user_list, train_record, test_record, item_set, k_list, ripple_set, batch_size):
+    precision_list = {k: [] for k in k_list}
+    recall_list = {k: [] for k in k_list}
 
     for user in user_list:
         test_item_list = list(item_set - train_record[user])
         item_score_map = dict()
         start = 0
         while start + args.batch_size <= len(test_item_list):
-            items, scores = model.get_scores(sess, {model.user_indices: [user] * args.batch_size,
-                                                    model.item_indices: test_item_list[start:start + args.batch_size],
-                                                    model.memories_h: model.memories_h,
-                                                    model.memories_r: model.memories_r,
-                                                    model.memories_t: model.memories_t})
+            items, scores = model.get_scores(sess, get_feed_dict(args, model, data, ripple_set, start, start + batch_size))
             for item, score in zip(items, scores):
                 item_score_map[item] = score
             start += args.batch_size

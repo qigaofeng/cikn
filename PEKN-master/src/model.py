@@ -87,7 +87,7 @@ class ATT(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class CIKN(object):
+class PEKN(object):
     def __init__(self, args, n_user, n_entity, n_relation, adj_entity, adj_relation, interaction_table, offset):
 
         self._parse_args(args, adj_entity, adj_relation, interaction_table, offset)
@@ -128,7 +128,7 @@ class CIKN(object):
         self.item_indices = tf.placeholder(dtype=tf.int64, shape=[None], name='item_indices')
         self.labels = tf.placeholder(dtype=tf.float32, shape=[None], name='labels')
 
-        # add user_三元组
+        # user_三元组
         self.memories_h = []  # add
         self.memories_r = []
         self.memories_t = []
@@ -365,8 +365,8 @@ class CIKN(object):
         scores[scores >= 0.5] = 1
         scores[scores < 0.5] = 0
         f1 = f1_score(y_true=labels, y_pred=scores)
-        acc = np.mean(np.equal(scores, labels))
-        return auc, f1, acc
+        #acc = np.mean(np.equal(scores, labels))
+        return auc, f1
 
     def get_scores(self, sess, feed_dict):
         return sess.run([self.item_indices, self.scores_normalized], feed_dict)
